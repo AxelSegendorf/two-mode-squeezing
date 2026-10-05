@@ -1,309 +1,314 @@
-"""Functions implementing formulas for photocurrent signals of measurement setup 2."""
-
 import numpy as np
 
+### Help functions and setup
+#
+# Parameters (same order in every function):
+#   alpha, phi       LO amplitude and phase (before the injection beam splitter)
+#   eta_FC1, eta_FC2 fibre coupler transmissions
+#   eta_inj          injection transmission of the second squeezer into the LO arm
+#   eta_PD1, eta_PD2 photodiode quantum efficiencies
+#   tau              FFR delay
+#   r, theta         squeezing parameter and angle of the main squeezer (SQZ)
+#   rp, thetap       squeezing parameter and angle of the squeezer injected into the LO (r', theta')
+#   B, omega0        measurement bandwidth and carrier frequency
+#
+# The LO amplitude after injection is beta = sqrt(1 - eta_inj) * alpha.
 
-def unnormalized_sinc(x):
-    """sin(x)/x with sinc(0) = 1."""
-    return np.sinc(x / np.pi)
+q_e = 1.602176634e-19
 
+def _aux(B, omega0, eta_FC1, eta_FC2):
+    """zeta_1..zeta_4, mu, nu, S(x) = sin(Bx)/x, C(x) = cos(omega0 x), E(x) = exp(i omega0 x)."""
+    a, b = eta_FC1, eta_FC2
+    z1, z2, z3, z4 = np.sqrt([a*b, a*(1-b), (1-a)*b, (1-a)*(1-b)])
+    mu = z1*z2 - z3*z4  # = (2 eta_FC1 - 1) sqrt(eta_FC2 (1 - eta_FC2))
+    nu = z1*z3 - z2*z4  # = (2 eta_FC2 - 1) sqrt(eta_FC1 (1 - eta_FC1))
+    S = lambda x: B*np.sinc(B*x/np.pi)  # sin(Bx)/x, -> B for x -> 0
+    C = lambda x: np.cos(omega0*x)
+    E = lambda x: np.exp(1j*omega0*x)
+    return z1, z2, z3, z4, mu, nu, S, C, E
 
-## Prefactors
 
-def zeta_1(eta_FC1, eta_FC2):
-    return np.sqrt(eta_FC1 * eta_FC2)
+def _beta(alpha, eta_inj):
+    # beta = sqrt(1 - eta_inj) alpha
+    return np.sqrt(1 - eta_inj)*alpha
 
 
-def zeta_2(eta_FC1, eta_FC2):
-    return np.sqrt(eta_FC1 * (1 - eta_FC2))
+### Expectation values
 
 
-def zeta_3(eta_FC1, eta_FC2):
-    return np.sqrt((1 - eta_FC1) * eta_FC2)
+def expt_dAS1dp_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1'^d dAS1'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.sinh(r)**2*(B*(z1**2 + z4**2) + 2*z1*z4*C(t)*S(t))
+        + eta_inj*np.sinh(rp)**2*(B*(z2**2 + z3**2) - 2*z2*z3*C(t)*S(t)))/np.pi
 
 
-def zeta_4(eta_FC1, eta_FC2):
-    return np.sqrt((1 - eta_FC1) * (1 - eta_FC2))
+def expt_dAS1p_dAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1' dAS1'^d> = B/pi + <dAS1'^d dAS1'>
+    return B/np.pi + expt_dAS1dp_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                       tau, r, theta, rp, thetap, B, omega0)
 
 
-def _zeta_all(eta_FC1, eta_FC2):
-    return (
-        zeta_1(eta_FC1, eta_FC2),
-        zeta_2(eta_FC1, eta_FC2),
-        zeta_3(eta_FC1, eta_FC2),
-        zeta_4(eta_FC1, eta_FC2),
-    )
+def expt_dAS1p_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1' dAS1'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.exp(1j*theta)*np.cosh(r)*np.sinh(r)*(B*(z1**2 + z4**2*E(2*t)) + 2*z1*z4*E(t)*S(t))
+        + eta_inj*np.exp(1j*thetap)*np.cosh(rp)*np.sinh(rp)*(B*(z3**2 + z2**2*E(2*t)) - 2*z2*z3*E(t)*S(t)))/np.pi
 
 
-def _mu(eta_FC1, eta_FC2):
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    return z1 * z2 - z3 * z4
+def expt_dAS1dp_dAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1'^d dAS1'^d> = <dAS1' dAS1'>^*
+    return np.conj(expt_dAS1p_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                    tau, r, theta, rp, thetap, B, omega0))
 
 
-def _nu(eta_FC1, eta_FC2):
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    return z1 * z3 - z2 * z4
+def expt_dAS2dp_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2'^d dAS2'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.sinh(r)**2*(B*(z2**2 + z3**2) - 2*z2*z3*C(t)*S(t))
+        + eta_inj*np.sinh(rp)**2*(B*(z1**2 + z4**2) + 2*z1*z4*C(t)*S(t)))/np.pi
 
 
-## Mean fields
+def expt_dAS2p_dAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2' dAS2'^d> = B/pi + <dAS2'^d dAS2'>
+    return B/np.pi + expt_dAS2dp_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                       tau, r, theta, rp, thetap, B, omega0)
 
-def A_bar_1(eta_FC1, eta_FC2, alpha, phi, omega_0, tau):
-    z1, z2, z3, _ = _zeta_all(eta_FC1, eta_FC2)
-    return (z3 - z2 * np.exp(1j * omega_0 * tau)) * alpha * np.exp(1j * phi)
 
+def expt_dAS2p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2' dAS2'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.exp(1j*theta)*np.cosh(r)*np.sinh(r)*(B*(z2**2 + z3**2*E(2*t)) - 2*z2*z3*E(t)*S(t))
+        + eta_inj*np.exp(1j*thetap)*np.cosh(rp)*np.sinh(rp)*(B*(z4**2 + z1**2*E(2*t)) + 2*z1*z4*E(t)*S(t)))/np.pi
 
-def A_bar_2(eta_FC1, eta_FC2, alpha, phi, omega_0, tau):
-    z1, _, _, z4 = _zeta_all(eta_FC1, eta_FC2)
-    return (z4 + z1 * np.exp(1j * omega_0 * tau)) * alpha * np.exp(1j * phi)
 
+def expt_dAS2dp_dAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2'^d dAS2'^d> = <dAS2' dAS2'>^*
+    return np.conj(expt_dAS2p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                    tau, r, theta, rp, thetap, B, omega0))
 
-## Fluctuation correlators
 
-def expt_dA1d_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1^dagger with delta A_1."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    sh2 = np.sinh(r) ** 2
-    sh2p = np.sinh(r_prime) ** 2
-    a_bracket = z1**2 + z4**2 + 2 * z1 * z4 * np.cos(omega_0 * tau) * s
-    b_bracket = z2**2 + z3**2 - 2 * z2 * z3 * np.cos(omega_0 * tau) * s
-    return Bp * (a_bracket * sh2 + b_bracket * eta_inj * sh2p)
+def expt_dAS1dp_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1'^d dAS2'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.sinh(r)**2 - eta_inj*np.sinh(rp)**2)/np.pi*(B*mu - (z1*z3*E(t) - z2*z4*E(-t))*S(t))
 
 
-def expt_dA1_dA1d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1 with delta A_1^dagger."""
-    return B / np.pi + expt_dA1d_dA1(
-        eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau
-    )
+def expt_dAS1p_dAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1' dAS2'^d> = <dAS1'^d dAS2'>^*   (the 1's from <b b^d> cancel)
+    return np.conj(expt_dAS1dp_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                     tau, r, theta, rp, thetap, B, omega0))
 
 
-def expt_dA1_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1 with delta A_1."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    chsh = np.cosh(r) * np.sinh(r)
-    chshp = np.cosh(r_prime) * np.sinh(r_prime)
-    a_bracket = z1**2 + z4**2 * np.exp(2j * omega_0 * tau) + 2 * z1 * z4 * np.exp(1j * omega_0 * tau) * s
-    b_bracket = z3**2 + z2**2 * np.exp(2j * omega_0 * tau) - 2 * z2 * z3 * np.exp(1j * omega_0 * tau) * s
-    return Bp * (
-        np.exp(1j * theta) * chsh * a_bracket
-        + eta_inj * np.exp(1j * theta_prime) * chshp * b_bracket
-    )
+def expt_dAS1p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1' dAS2'>
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return (np.exp(1j*theta)*np.cosh(r)*np.sinh(r)*(B*(z1*z2 - z3*z4*E(2*t)) - nu*E(t)*S(t))
+        + eta_inj*np.exp(1j*thetap)*np.cosh(rp)*np.sinh(rp)*(B*(z3*z4 - z1*z2*E(2*t)) + nu*E(t)*S(t)))/np.pi
 
 
-def expt_dA1d_dA1d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1^dagger with delta A_1^dagger."""
-    return np.conj(
-        expt_dA1_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
+def expt_dAS1dp_dAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS1'^d dAS2'^d> = <dAS1' dAS2'>^*
+    return np.conj(expt_dAS1p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                    tau, r, theta, rp, thetap, B, omega0))
 
 
-def expt_dA2d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2^dagger with delta A_2."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    sh2 = np.sinh(r) ** 2
-    sh2p = np.sinh(r_prime) ** 2
-    a_bracket = z2**2 + z3**2 - 2 * z2 * z3 * np.cos(omega_0 * tau) * s
-    b_bracket = z1**2 + z4**2 + 2 * z1 * z4 * np.cos(omega_0 * tau) * s
-    return Bp * (a_bracket * sh2 + b_bracket * eta_inj * sh2p)
-
-
-def expt_dA2_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2 with delta A_2^dagger."""
-    return B / np.pi + expt_dA2d_dA2(
-        eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau
-    )
-
-
-def expt_dA2_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2 with delta A_2."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    chsh = np.cosh(r) * np.sinh(r)
-    chshp = np.cosh(r_prime) * np.sinh(r_prime)
-    a_bracket = z2**2 + z3**2 * np.exp(2j * omega_0 * tau) - 2 * z2 * z3 * np.exp(1j * omega_0 * tau) * s
-    b_bracket = z4**2 + z1**2 * np.exp(2j * omega_0 * tau) + 2 * z1 * z4 * np.exp(1j * omega_0 * tau) * s
-    return Bp * (
-        np.exp(1j * theta) * chsh * a_bracket
-        + eta_inj * np.exp(1j * theta_prime) * chshp * b_bracket
-    )
-
-
-def expt_dA2d_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2^dagger with delta A_2^dagger."""
-    return np.conj(
-        expt_dA2_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
-
-
-def expt_dA1d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1^dagger with delta A_2."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    mu = _mu(eta_FC1, eta_FC2)
-    sh2 = np.sinh(r) ** 2
-    sh2p = np.sinh(r_prime) ** 2
-    bracket = mu - (z1 * z3 * np.exp(1j * omega_0 * tau) - z2 * z4 * np.exp(-1j * omega_0 * tau)) * s
-    return Bp * bracket * (sh2 - eta_inj * sh2p)
-
-
-def expt_dA1_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1 with delta A_2^dagger."""
-    return np.conj(
-        expt_dA1d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
-
-
-def expt_dA1_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1 with delta A_2."""
-    z1, z2, z3, z4 = _zeta_all(eta_FC1, eta_FC2)
-    Bp = B / np.pi
-    s = unnormalized_sinc(B * tau)
-    nu = _nu(eta_FC1, eta_FC2)
-    chsh = np.cosh(r) * np.sinh(r)
-    chshp = np.cosh(r_prime) * np.sinh(r_prime)
-    a_bracket = z1 * z2 - z3 * z4 * np.exp(2j * omega_0 * tau) - nu * np.exp(1j * omega_0 * tau) * s
-    b_bracket = z3 * z4 - z1 * z2 * np.exp(2j * omega_0 * tau) + nu * np.exp(1j * omega_0 * tau) * s
-    return Bp * (
-        np.exp(1j * theta) * chsh * a_bracket
-        + eta_inj * np.exp(1j * theta_prime) * chshp * b_bracket
-    )
-
-
-def expt_dA1d_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_1^dagger with delta A_2^dagger."""
-    return np.conj(
-        expt_dA1_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
-
-
-def expt_dA2d_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2^dagger with delta A_1."""
-    return expt_dA1_dA2d(
-        eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau
-    )
-
-
-def expt_dA2_dA1d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2 with delta A_1^dagger."""
-    return np.conj(
-        expt_dA1_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
-
-
-def expt_dA2_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2 with delta A_1."""
-    return expt_dA1_dA2(
-        eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau
-    )
-
-
-def expt_dA2d_dA1d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of delta A_2^dagger with delta A_1^dagger."""
-    return np.conj(
-        expt_dA1_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    )
-
-
-## Main signals
-
-def expt_I_1(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of signal 1."""
-    a_bar = A_bar_1(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    c_d_d = expt_dA1d_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return np.real(eta_PD1 * e * (np.conj(a_bar) * a_bar + c_d_d))
-
-
-def expt_I_2(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of signal 2."""
-    a_bar = A_bar_2(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    c_d_d = expt_dA2d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return np.real(eta_PD2 * e * (np.conj(a_bar) * a_bar + c_d_d))
-
-
-def var_I_1(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Variance of signal 1."""
-    pref = (eta_PD1 * e) ** 2
-    a_bar = A_bar_1(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    c_d_d = expt_dA1d_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_d_dag = expt_dA1_dA1d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_dd = expt_dA1_dA1(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    term1 = np.conj(a_bar) * a_bar * (c_d_d + c_d_dag)
-    term2 = 2 * np.real(np.conj(a_bar) ** 2 * c_dd)
-    term3 = np.abs(c_dd) ** 2
-    term4 = c_d_d * c_d_dag
-    return np.real(pref * (term1 + term2 + term3 + term4))
-
-
-def var_I_2(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Variance of signal 2."""
-    pref = (eta_PD2 * e) ** 2
-    a_bar = A_bar_2(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    c_d_d = expt_dA2d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_d_dag = expt_dA2_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_dd = expt_dA2_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    term1 = np.conj(a_bar) * a_bar * (c_d_d + c_d_dag)
-    term2 = 2 * np.real(np.conj(a_bar) ** 2 * c_dd)
-    term3 = np.abs(c_dd) ** 2
-    term4 = c_d_d * c_d_dag
-    return np.real(pref * (term1 + term2 + term3 + term4))
-
-
-def cov_I_1_I_2(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Covariance of signals 1 and 2."""
-    pref = eta_PD1 * eta_PD2 * e**2
-    a_bar_1 = A_bar_1(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    a_bar_2 = A_bar_2(eta_FC1, eta_FC2, alpha, phi, omega_0, tau)
-    c_dA1_dA2d = expt_dA1_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_dA1_dA2 = expt_dA1_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_dA1d_dA2 = expt_dA1d_dA2(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    c_dA1d_dA2d = expt_dA1d_dA2d(eta_FC1, eta_FC2, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    value = pref * (
-        2 * np.real(np.conj(a_bar_1) * a_bar_2 * c_dA1_dA2d)
-        + 2 * np.real(np.conj(a_bar_1) * np.conj(a_bar_2) * c_dA1_dA2)
-        + c_dA1d_dA2d * c_dA1_dA2
-        + c_dA1d_dA2 * c_dA1_dA2d
-    )
-    return np.real(value)
-
-
-def expt_I_diff(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of difference signal (-).
-
-    Not assuming equal quantum efficiencies of detectors.
-    """
-    args = (eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return expt_I_1(*args) - expt_I_2(*args)
-
-
-def expt_I_comb(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Expectation value of combination signal (+).
-
-    Not assuming equal quantum efficiencies of detectors.
-    """
-    args = (eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return expt_I_1(*args) + expt_I_2(*args)
-
-
-def var_I_diff(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Variance of difference signal (-).
-
-    Not assuming equal quantum efficiencies of detectors.
-    """
-    args = (eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return var_I_1(*args) + var_I_2(*args) - 2 * cov_I_1_I_2(*args)
-
-
-def var_I_comb(eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau):
-    """Variance of combination signal (+).
-
-    Not assuming equal quantum efficiencies of detectors.
-    """
-    args = (eta_FC1, eta_FC2, eta_PD1, eta_PD2, e, alpha, phi, eta_inj, r, theta, r_prime, theta_prime, B, omega_0, tau)
-    return var_I_1(*args) + var_I_2(*args) + 2 * cov_I_1_I_2(*args)
+def expt_dAS2dp_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2'^d dAS1'> = <dAS1'^d dAS2'>^*
+    return np.conj(expt_dAS1dp_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                     tau, r, theta, rp, thetap, B, omega0))
+
+
+def expt_dAS2p_dAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2' dAS1'^d> = <dAS1' dAS2'^d>^*
+    return np.conj(expt_dAS1p_dAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                     tau, r, theta, rp, thetap, B, omega0))
+
+
+def expt_dAS2p_dAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2' dAS1'> = <dAS1' dAS2'>
+    return expt_dAS1p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                            tau, r, theta, rp, thetap, B, omega0)
+
+
+def expt_dAS2dp_dAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # <dAS2'^d dAS1'^d> = <dAS1' dAS2'>^*
+    return np.conj(expt_dAS1p_dAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2,
+                                    tau, r, theta, rp, thetap, B, omega0))
+
+
+### Constant field components
+
+def bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    return (z3 - z2*E(tau))*_beta(alpha, eta_inj)*np.exp(1j*phi)
+
+
+def bAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'^*
+    return np.conj(bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    return (z4 + z1*E(tau))*_beta(alpha, eta_inj)*np.exp(1j*phi)
+
+
+def bAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'^*
+    return np.conj(bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS1dp_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'^* bAS1'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    return _beta(alpha, eta_inj)**2*(z2**2 + z3**2 - 2*z2*z3*C(tau))
+
+
+def bAS1p_bAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1' bAS1'^* = bAS1'^* bAS1'
+    return bAS1dp_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+
+
+def bAS1p_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1' bAS1'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return _beta(alpha, eta_inj)**2*np.exp(2j*phi)*(z3**2 + z2**2*E(2*t) - 2*z2*z3*E(t))
+
+
+def bAS1dp_bAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'^* bAS1'^* = (bAS1' bAS1')^*
+    return np.conj(bAS1p_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS2dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'^* bAS2'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    return _beta(alpha, eta_inj)**2*(z1**2 + z4**2 + 2*z1*z4*C(tau))
+
+
+def bAS2p_bAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2' bAS2'^* = bAS2'^* bAS2'
+    return bAS2dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+
+
+def bAS2p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2' bAS2'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return _beta(alpha, eta_inj)**2*np.exp(2j*phi)*(z4**2 + z1**2*E(2*t) + 2*z1*z4*E(t))
+
+
+def bAS2dp_bAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'^* bAS2'^* = (bAS2' bAS2')^*
+    return np.conj(bAS2p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS1dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'^* bAS2'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return _beta(alpha, eta_inj)**2*(z3*z4 - z1*z2 + z1*z3*E(t) - z2*z4*E(-t))
+
+
+def bAS1p_bAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1' bAS2'^* = (bAS1'^* bAS2')^*
+    return np.conj(bAS1dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS1p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1' bAS2'
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    return _beta(alpha, eta_inj)**2*np.exp(2j*phi)*(z3*z4 + nu*E(t) - z1*z2*E(2*t))
+
+
+def bAS1dp_bAS2dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS1'^* bAS2'^* = (bAS1' bAS2')^*
+    return np.conj(bAS1p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS2dp_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'^* bAS1' = (bAS1'^* bAS2')^*
+    return np.conj(bAS1dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+def bAS2p_bAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2' bAS1'^* = bAS1'^* bAS2'
+    return bAS1dp_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+
+
+def bAS2p_bAS1p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2' bAS1' = bAS1' bAS2'
+    return bAS1p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+
+
+def bAS2dp_bAS1dp(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # bAS2'^* bAS1'^* = (bAS1' bAS2')^*
+    return np.conj(bAS1p_bAS2p(alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0))
+
+
+
+
+### PSD
+
+def PSD_I1(f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # PSD_I1(f)
+    P = (alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t, n = tau, eta_PD1
+    F = lambda x: np.cos(2*np.pi*f*x)
+    return n*q_e**2*(bAS1dp_bAS1p(*P)*(1 + 2*n*np.sinh(r)**2*(z1**2 + z4**2 + 2*z1*z4*C(t)*F(t))
+            + 2*n*eta_inj*np.sinh(rp)**2*(z2**2 + z3**2 - 2*z2*z3*C(t)*F(t)))
+        + n*np.real(bAS1dp_bAS1dp(*P)*(
+            np.exp(1j*theta)*np.sinh(2*r)*(z1**2 + z4**2*E(2*t) + 2*z1*z4*E(t)*F(t))
+            + eta_inj*np.exp(1j*thetap)*np.sinh(2*rp)*(z3**2 + z2**2*E(2*t) - 2*z2*z3*E(t)*F(t)))))
+
+
+def PSD_I2(f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # PSD_I2(f)
+    P = (alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t, n = tau, eta_PD2
+    F = lambda x: np.cos(2*np.pi*f*x)
+    return n*q_e**2*(bAS2dp_bAS2p(*P)*(1 + 2*n*np.sinh(r)**2*(z2**2 + z3**2 - 2*z2*z3*C(t)*F(t))
+            + 2*n*eta_inj*np.sinh(rp)**2*(z1**2 + z4**2 + 2*z1*z4*C(t)*F(t)))
+        + n*np.real(bAS2dp_bAS2dp(*P)*(
+            np.exp(1j*theta)*np.sinh(2*r)*(z2**2 + z3**2*E(2*t) - 2*z2*z3*E(t)*F(t))
+            + eta_inj*np.exp(1j*thetap)*np.sinh(2*rp)*(z4**2 + z1**2*E(2*t) + 2*z1*z4*E(t)*F(t)))))
+
+
+def PSD_I1I2(f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # PSD_I1I2(f) = PSD_I2I1(f)
+    P = (alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+    z1, z2, z3, z4, mu, nu, S, C, E = _aux(B, omega0, eta_FC1, eta_FC2)
+    t = tau
+    F = lambda x: np.cos(2*np.pi*f*x)
+    return eta_PD1*eta_PD2*q_e**2*(
+        np.sinh(2*r)*np.real(np.exp(1j*theta)*bAS1dp_bAS2dp(*P)*(
+            z1*z2 - z3*z4*E(2*t) - nu*E(t)*F(t)))
+        + eta_inj*np.sinh(2*rp)*np.real(np.exp(1j*thetap)*bAS1dp_bAS2dp(*P)*(
+            z3*z4 - z1*z2*E(2*t) + nu*E(t)*F(t)))
+        + 2*(np.sinh(r)**2 - eta_inj*np.sinh(rp)**2)*np.real(bAS1dp_bAS2p(*P)*(
+            mu + (z2*z4*E(t) - z1*z3*E(-t))*F(t))))
+
+
+def PSD_Ip(f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # PSD_I+(f) = PSD_I1 + PSD_I2 + 2 PSD_I1I2
+    P = (f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+    return PSD_I1(*P) + PSD_I2(*P) + 2*PSD_I1I2(*P)
+
+
+def PSD_Im(f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0):
+    # PSD_I-(f) = PSD_I1 + PSD_I2 - 2 PSD_I1I2
+    P = (f, alpha, phi, eta_FC1, eta_FC2, eta_inj, eta_PD1, eta_PD2, tau, r, theta, rp, thetap, B, omega0)
+    return PSD_I1(*P) + PSD_I2(*P) - 2*PSD_I1I2(*P)
