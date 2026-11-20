@@ -25,6 +25,10 @@ def _Pi(x, Bsqz):
     # Pi_Bsqz(x) = 1 for |x| < Bsqz, 0 otherwise
     return (np.abs(np.asarray(x)) < Bsqz).astype(float)
 
+def _C(r, theta, phi, domega):
+    # C_domega = cosh 2r + delta_{domega,0} sinh 2r cos(theta - 2 phi)
+    return np.cosh(2*r) + np.where(domega == 0, 1.0, 0.0)*np.sinh(2*r)*np.cos(theta - 2*phi)
+
 
 ### Expectation values
 
@@ -218,8 +222,6 @@ def bA2dD_bA1dD(alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t)
     return np.conj(bA1D_bA2D(alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t))
 
 
-
-
 ### PSD  (time averaged and symmetrised in f; general f, with the Pi_Bsqz windows)
 
 def PSD_I1(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
@@ -228,8 +230,7 @@ def PSD_I1(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
     n, w = eta_PD1, 2*np.pi*f
     Pi0 = _Pi(w, Bsqz)
     Pis = _Pi(w - domega, Bsqz) + _Pi(w + domega, Bsqz)
-    return n*q_e**2*bA1dD_bA1D(*P)*((1 - n*eta_FC)*Pi0 + n*eta_FC/2*np.cosh(2*r)*Pis)
-
+    return n*q_e**2*bA1dD_bA1D(*P)*((1 - n*eta_FC)*Pi0 + n*eta_FC/2*_C(r, theta, phi, domega)*Pis)
 
 def PSD_I2(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
     # PSD_I2(f)
@@ -237,16 +238,14 @@ def PSD_I2(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
     n, w = eta_PD2, 2*np.pi*f
     Pi0 = _Pi(w, Bsqz)
     Pis = _Pi(w - domega, Bsqz) + _Pi(w + domega, Bsqz)
-    return n*q_e**2*bA2dD_bA2D(*P)*((1 - n*(1 - eta_FC))*Pi0 + n*(1 - eta_FC)/2*np.cosh(2*r)*Pis)
-
+    return n*q_e**2*bA2dD_bA2D(*P)*((1 - n*(1 - eta_FC))*Pi0 + n*(1 - eta_FC)/2*_C(r, theta, phi, domega)*Pis)
 
 def PSD_I1I2(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
     # PSD_I1I2(f) = PSD_I2I1(f)
     w = 2*np.pi*f
     Pi0 = _Pi(w, Bsqz)
     Pis = _Pi(w - domega, Bsqz) + _Pi(w + domega, Bsqz)
-    return eta_PD1*eta_PD2*q_e**2*eta_FC*(1 - eta_FC)*alpha**2*(Pi0 - np.cosh(2*r)/2*Pis)
-
+    return eta_PD1*eta_PD2*q_e**2*eta_FC*(1 - eta_FC)*alpha**2*(Pi0 - _C(r, theta, phi, domega)/2*Pis)
 
 def PSD_Ip(f, alpha, phi, eta_FC, eta_PD1, eta_PD2, r, theta, Bsqz, domega, t):
     # PSD_I+(f) = PSD_I1 + PSD_I2 + 2 PSD_I1I2

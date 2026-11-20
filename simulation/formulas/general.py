@@ -32,6 +32,7 @@ from . import setup_3
 
 q_e = 1.602176634e-19
 c = 299792458
+hbar = 1.054571817e-34
 
 ### General formulas (plain numbers in, numbers out)
 
